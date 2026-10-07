@@ -31,6 +31,7 @@ class Application:
 
         # Init Celery
         self.celery = make_celery(self.flask_app)
+        self.flask_app.celery = self.celery
 
         # Init Flask-SQLAlchemy
         self.db = db

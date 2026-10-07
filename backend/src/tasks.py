@@ -1,4 +1,5 @@
 from celery import Celery
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.models import Counter
 from src.settings import Settings as S
@@ -11,35 +12,43 @@ def make_celery(app):
         backend=app.config['CELERY_RESULT_BACKEND'],
         broker=app.config['CELERY_BROKER_URL']
     )
-    celery.conf.update(**S.CELERY_CONFIG)
+    celery.conf.update(app.config.get('CELERY_CONFIG', S.CELERY_CONFIG))
 
     # Subclass the base Task so that tasks run in a Flask app context
     TaskBase = celery.Task
     class ContextTask(TaskBase):  # noqa
+        abstract = True
+
         def __call__(self, *args, **kwargs):  # noqa
             with app.app_context():
-                return TaskBase.__call__(self, *args, **kwargs)
+                return self.run(*args, **kwargs)
     celery.Task = ContextTask
 
-    # Add the tasks
-    Tasks.bind(celery)
+    bind_tasks(celery)
 
     return celery
 
 
 class Tasks:
+    ping_once = None
 
-    # How to add new tasks:
-    # - Create the static method (like `ping_once()`)
-    # - Add the corresponding bind in the bind() method
 
-    @classmethod
-    def bind(cls, celery):
-        """Bind the Celery app to all the tasks"""
-        # NOTE: DONT
-        cls.ping_once = celery.task(cls.ping_once)
+def bind_tasks(celery):
+    @celery.task(
+        bind=True,
+        name='src.tasks.ping_once',
+        autoretry_for=(SQLAlchemyError,),
+        retry_backoff=1,
+        retry_backoff_max=60,
+        retry_jitter=False,
+        max_retries=5
+    )
+    def ping_once(task, amount, label=None):
+        Counter.apply_task_increment(
+            task_id=task.request.id,
+            amount=amount,
+            label=label
+        )
+        return None
 
-    @staticmethod
-    def ping_once(amount):
-        for counter in Counter.list():
-            counter.increment(amount=amount)
+    Tasks.ping_once = ping_once

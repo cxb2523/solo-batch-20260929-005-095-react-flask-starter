@@ -1,5 +1,6 @@
 from flask import (
     Blueprint,
+    current_app,
     jsonify
 )
 
@@ -22,20 +23,36 @@ def index():
 
 @blueprint.route('/api/v1/reset/')
 def reset():
-    counter = Counter.get_create(label='Test')
+    counter = Counter.get_or_create(label='Test')
     counter.reset()
     return jsonify(response=counter.count)
 
 
 @blueprint.route('/api/v1/')
 def api():
-    counter = Counter.get_create(label='Test')
-    counter.increment()
+    Counter.get_or_create(label='Test')
+    task = current_app.celery.tasks['src.tasks.ping_once']
+    result = None
+    try:
+        result = task.apply_async(args=(1,), kwargs={'label': 'Test'})
+        result.get(
+            timeout=current_app.config['COUNTER_TASK_TIMEOUT'],
+            interval=0.05,
+            propagate=True,
+            disable_sync_subtasks=False
+        )
+    except Exception:
+        return jsonify(response='Counter service temporarily unavailable'), 503
+    finally:
+        if result is not None:
+            result.forget()
+
+    count = Counter.snapshot('Test')
     date = datetime.datetime.now()
     dateStr = date.strftime('%c')
-    times = 'time' if counter.count == 1 else 'times'
+    times = 'time' if count == 1 else 'times'
     response = RESPONSE_TEMPLATE.format(
-        count=counter.count,
+        count=count,
         times=times,
         date=dateStr)
     return jsonify(response=response)

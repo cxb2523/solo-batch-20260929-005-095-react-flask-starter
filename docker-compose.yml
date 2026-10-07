@@ -1,5 +1,10 @@
 version: '3'
 
+x-backend-environment: &backend-environment
+  DATABASE_URL: 'postgres://obscure-user:obscure-password@postgres/app'
+  REDIS_URL: 'redis://redis:6379'
+  LOCALSTACK_HOST: 'localstack'
+
 services:
 
   frontend:
@@ -24,10 +29,9 @@ services:
       shipyard.route: '/api'
     build: 'backend'
     environment:
-      DATABASE_URL: 'postgres://obscure-user:obscure-password@postgres/app'
       DEV: ${DEV}
       FLASK_DEBUG: '1'
-      LOCALSTACK_HOST: 'localstack'
+      <<: *backend-environment
     volumes:
       - './backend/filesystem/entrypoints:/entrypoints:ro'
       - './backend/migrations:/srv/migrations'
@@ -44,10 +48,9 @@ services:
       shipyard.init: 'poetry run flask db upgrade'
     build: 'backend'
     environment:
-      DATABASE_URL: 'postgres://obscure-user:obscure-password@postgres/app'
       DEV: ${DEV}
       FLASK_DEBUG: '1'
-      LOCALSTACK_HOST: 'localstack'
+      <<: *backend-environment
     command: '/entrypoints/worker.sh'
     volumes:
       - './backend/filesystem/entrypoints:/entrypoints:ro'
